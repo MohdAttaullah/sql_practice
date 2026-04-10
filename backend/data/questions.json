@@ -1,0 +1,1384 @@
+[
+  {
+    "id": 1,
+    "title": "Total Delivered Revenue by Seller",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate the total revenue for each seller considering only delivered orders. Return seller_id, seller name, and total_revenue sorted by revenue descending.",
+    "tables_used": [
+      "orders",
+      "sellers"
+    ],
+    "hint": "JOIN orders and sellers, filter status='delivered', GROUP BY seller.",
+    "explanation": "Basic JOIN + aggregation + filter pattern.",
+    "solution_sql": "SELECT s.seller_id, s.name AS seller_name, SUM(o.amount) AS total_revenue FROM orders o JOIN sellers s ON o.seller_id = s.seller_id WHERE o.status = 'delivered' GROUP BY s.seller_id, s.name ORDER BY total_revenue DESC",
+    "pyspark_equivalent": "orders.join(sellers,'seller_id').filter(F.col('status')=='delivered').groupBy('seller_id',sellers['name']).agg(F.sum('amount').alias('total_revenue')).orderBy(F.desc('total_revenue'))",
+    "expected_output_columns": [
+      "seller_id",
+      "seller_name",
+      "total_revenue"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 2,
+    "title": "Top Product by Region",
+    "difficulty": "Medium",
+    "tags": [
+      "window functions",
+      "ranking",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find the top-selling product by total quantity in each seller region (delivered orders only). Return region, product_name, total_qty.",
+    "tables_used": [
+      "orders",
+      "sellers",
+      "products"
+    ],
+    "hint": "Aggregate then use ROW_NUMBER() OVER(PARTITION BY region ORDER BY total_qty DESC).",
+    "explanation": "Top-N per group using window functions.",
+    "solution_sql": "WITH ps AS (SELECT s.region, p.name AS product_name, SUM(o.quantity) AS total_qty FROM orders o JOIN sellers s ON o.seller_id=s.seller_id JOIN products p ON o.product_id=p.product_id WHERE o.status='delivered' GROUP BY s.region, p.name), rk AS (SELECT *, ROW_NUMBER() OVER(PARTITION BY region ORDER BY total_qty DESC) AS rn FROM ps) SELECT region, product_name, total_qty FROM rk WHERE rn=1 ORDER BY region",
+    "pyspark_equivalent": "w=Window.partitionBy('region').orderBy(F.desc('total_qty'))\ndf=orders.join(sellers,'seller_id').join(products,'product_id').filter(F.col('status')=='delivered').groupBy('region',products['name'].alias('product_name')).agg(F.sum('quantity').alias('total_qty')).withColumn('rn',F.row_number().over(w)).filter(F.col('rn')==1).drop('rn')",
+    "expected_output_columns": [
+      "region",
+      "product_name",
+      "total_qty"
+    ],
+    "expected_row_count": 4,
+    "requires_order": false
+  },
+  {
+    "id": 3,
+    "title": "Repeat Customers",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find customers with more than 2 distinct orders. Return customer_id, name, order_count desc.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "GROUP BY customer_id, HAVING COUNT(DISTINCT order_id) > 2.",
+    "explanation": "HAVING clause for filtering aggregates.",
+    "solution_sql": "SELECT c.customer_id, c.name, COUNT(DISTINCT o.order_id) AS order_count FROM orders o JOIN customers c ON o.customer_id=c.customer_id GROUP BY c.customer_id, c.name HAVING COUNT(DISTINCT o.order_id) > 2 ORDER BY order_count DESC",
+    "pyspark_equivalent": "orders.join(customers,'customer_id').groupBy('customer_id','name').agg(F.countDistinct('order_id').alias('order_count')).filter(F.col('order_count')>2).orderBy(F.desc('order_count'))",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "order_count"
+    ],
+    "expected_row_count": 14,
+    "requires_order": true
+  },
+  {
+    "id": 4,
+    "title": "Customers With No Delivered Orders",
+    "difficulty": "Easy",
+    "tags": [
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find customers who have never had a delivered order. Return customer_id and name.",
+    "tables_used": [
+      "customers",
+      "orders"
+    ],
+    "hint": "LEFT JOIN with status filter, or NOT EXISTS / LEFT ANTI join.",
+    "explanation": "Anti-join pattern for finding missing matches.",
+    "solution_sql": "SELECT c.customer_id, c.name FROM customers c LEFT JOIN orders o ON c.customer_id=o.customer_id AND o.status='delivered' WHERE o.order_id IS NULL ORDER BY c.customer_id",
+    "pyspark_equivalent": "delivered=orders.filter(F.col('status')=='delivered').select('customer_id').distinct()\ndf=customers.join(delivered,'customer_id','left_anti')",
+    "expected_output_columns": [
+      "customer_id",
+      "name"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 5,
+    "title": "Latest Order Per Customer",
+    "difficulty": "Medium",
+    "tags": [
+      "window functions",
+      "deduplication",
+      "PySpark SQL"
+    ],
+    "problem_statement": "For each customer find their most recent order. Return customer_id, name, order_id, order_date, amount.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "ROW_NUMBER() OVER(PARTITION BY customer_id ORDER BY order_date DESC).",
+    "explanation": "Latest record per key — essential deduplication pattern.",
+    "solution_sql": "WITH rk AS (SELECT o.*, c.name, ROW_NUMBER() OVER(PARTITION BY o.customer_id ORDER BY o.order_date DESC) AS rn FROM orders o JOIN customers c ON o.customer_id=c.customer_id) SELECT customer_id, name, order_id, order_date, amount FROM rk WHERE rn=1 ORDER BY customer_id",
+    "pyspark_equivalent": "w=Window.partitionBy('customer_id').orderBy(F.desc('order_date'))\ndf=orders.join(customers,'customer_id').withColumn('rn',F.row_number().over(w)).filter(F.col('rn')==1).drop('rn')",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "order_id",
+      "order_date",
+      "amount"
+    ],
+    "expected_row_count": 20,
+    "requires_order": false
+  },
+  {
+    "id": 6,
+    "title": "Duplicate Order Detection",
+    "difficulty": "Easy",
+    "tags": [
+      "deduplication",
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find duplicate order_ids in the orders table. Return order_id and occurrence_count.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "GROUP BY order_id HAVING COUNT(*) > 1.",
+    "explanation": "Duplicate detection — critical for data quality.",
+    "solution_sql": "SELECT order_id, COUNT(*) AS occurrence_count FROM orders GROUP BY order_id HAVING COUNT(*)>1",
+    "pyspark_equivalent": "orders.groupBy('order_id').agg(F.count('*').alias('occurrence_count')).filter(F.col('occurrence_count')>1)",
+    "expected_output_columns": [
+      "order_id",
+      "occurrence_count"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 7,
+    "title": "Seller Target vs Actual Sales",
+    "difficulty": "Medium",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Compare seller target_revenue vs actual delivered revenue. Return seller_id, name, target_revenue, actual_revenue, met_target boolean.",
+    "tables_used": [
+      "sellers",
+      "orders"
+    ],
+    "hint": "LEFT JOIN sellers to aggregated orders, COALESCE for nulls.",
+    "explanation": "KPI comparison pattern common in reporting.",
+    "solution_sql": "SELECT s.seller_id, s.name, s.target_revenue, COALESCE(SUM(o.amount),0) AS actual_revenue, CASE WHEN COALESCE(SUM(o.amount),0)>=s.target_revenue THEN true ELSE false END AS met_target FROM sellers s LEFT JOIN orders o ON s.seller_id=o.seller_id AND o.status='delivered' GROUP BY s.seller_id, s.name, s.target_revenue ORDER BY s.seller_id",
+    "pyspark_equivalent": "actual=orders.filter(F.col('status')=='delivered').groupBy('seller_id').agg(F.sum('amount').alias('actual_revenue'))\ndf=sellers.join(actual,'seller_id','left').fillna(0,subset=['actual_revenue']).withColumn('met_target',F.col('actual_revenue')>=F.col('target_revenue'))",
+    "expected_output_columns": [
+      "seller_id",
+      "name",
+      "target_revenue",
+      "actual_revenue",
+      "met_target"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 8,
+    "title": "Products With No Sales",
+    "difficulty": "Easy",
+    "tags": [
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find products never ordered. Return product_id and name.",
+    "tables_used": [
+      "products",
+      "orders"
+    ],
+    "hint": "LEFT JOIN products to orders, WHERE order_id IS NULL.",
+    "explanation": "Anti-join for gap detection.",
+    "solution_sql": "SELECT p.product_id, p.name FROM products p LEFT JOIN orders o ON p.product_id=o.product_id WHERE o.order_id IS NULL ORDER BY p.product_id",
+    "pyspark_equivalent": "ordered=orders.select('product_id').distinct()\ndf=products.join(ordered,'product_id','left_anti')",
+    "expected_output_columns": [
+      "product_id",
+      "name"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 9,
+    "title": "Daily GMV Trend",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate daily GMV (total amount all statuses) per order_date, sorted by date.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "GROUP BY order_date, SUM(amount).",
+    "explanation": "Basic date-level aggregation.",
+    "solution_sql": "SELECT order_date, SUM(amount) AS daily_gmv FROM orders GROUP BY order_date ORDER BY order_date",
+    "pyspark_equivalent": "orders.groupBy('order_date').agg(F.sum('amount').alias('daily_gmv')).orderBy('order_date')",
+    "expected_output_columns": [
+      "order_date",
+      "daily_gmv"
+    ],
+    "expected_row_count": 39,
+    "requires_order": true
+  },
+  {
+    "id": 10,
+    "title": "Running Total by Date",
+    "difficulty": "Medium",
+    "tags": [
+      "window functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate running total of delivered revenue by date. Return order_date, daily_revenue, running_total.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "SUM() OVER(ORDER BY order_date ROWS UNBOUNDED PRECEDING).",
+    "explanation": "Cumulative window function pattern.",
+    "solution_sql": "WITH daily AS (SELECT order_date, SUM(amount) AS daily_revenue FROM orders WHERE status='delivered' GROUP BY order_date) SELECT order_date, daily_revenue, SUM(daily_revenue) OVER(ORDER BY order_date) AS running_total FROM daily ORDER BY order_date",
+    "pyspark_equivalent": "w=Window.orderBy('order_date').rowsBetween(Window.unboundedPreceding,Window.currentRow)\ndaily=orders.filter(F.col('status')=='delivered').groupBy('order_date').agg(F.sum('amount').alias('daily_revenue'))\ndf=daily.withColumn('running_total',F.sum('daily_revenue').over(w))",
+    "expected_output_columns": [
+      "order_date",
+      "daily_revenue",
+      "running_total"
+    ],
+    "expected_row_count": 37,
+    "requires_order": true
+  },
+  {
+    "id": 11,
+    "title": "Top 3 Customers by Spend Per Region",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "ranking",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find top 3 customers by total spend in each region (delivered only). Return region, customer_name, total_spend, rank.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "Aggregate then RANK() OVER(PARTITION BY region ORDER BY total_spend DESC).",
+    "explanation": "Top-N per group with RANK.",
+    "solution_sql": "WITH cs AS (SELECT c.region, c.name AS customer_name, SUM(o.amount) AS total_spend FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.status='delivered' GROUP BY c.region, c.name), rk AS (SELECT *, RANK() OVER(PARTITION BY region ORDER BY total_spend DESC) AS rnk FROM cs) SELECT region, customer_name, total_spend, rnk FROM rk WHERE rnk<=3 ORDER BY region, rnk",
+    "pyspark_equivalent": "w=Window.partitionBy('region').orderBy(F.desc('total_spend'))\ndf=orders.filter(F.col('status')=='delivered').join(customers,'customer_id').groupBy('region','name').agg(F.sum('amount').alias('total_spend')).withColumn('rnk',F.rank().over(w)).filter(F.col('rnk')<=3)",
+    "expected_output_columns": [
+      "region",
+      "customer_name",
+      "total_spend",
+      "rnk"
+    ],
+    "expected_row_count": 12,
+    "requires_order": false
+  },
+  {
+    "id": 12,
+    "title": "Identify Late-Arriving Data",
+    "difficulty": "Medium",
+    "tags": [
+      "date functions",
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find orders where delivery_date is more than 7 days after order_date. Return order_id, order_date, delivery_date, days_to_deliver.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Use DATE_DIFF or date subtraction, filter > 7.",
+    "explanation": "Late-arriving data detection for SLA monitoring.",
+    "solution_sql": "SELECT order_id, order_date, delivery_date, delivery_date - order_date AS days_to_deliver FROM orders WHERE delivery_date IS NOT NULL AND (delivery_date - order_date) > 7 ORDER BY days_to_deliver DESC",
+    "pyspark_equivalent": "df=orders.filter(F.col('delivery_date').isNotNull()).withColumn('days_to_deliver',F.datediff('delivery_date','order_date')).filter(F.col('days_to_deliver')>7)",
+    "expected_output_columns": [
+      "order_id",
+      "order_date",
+      "delivery_date",
+      "days_to_deliver"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 13,
+    "title": "Changed Records Between Source and Target",
+    "difficulty": "Medium",
+    "tags": [
+      "CDC",
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find transactions where the amount differs between source and target system for the same txn_id. Return txn_id, source_amount, target_amount, difference.",
+    "tables_used": [
+      "transactions"
+    ],
+    "hint": "Self-join on txn_id filtering by system.",
+    "explanation": "Change detection — core CDC concept.",
+    "solution_sql": "SELECT s.txn_id, s.amount AS source_amount, t.amount AS target_amount, t.amount - s.amount AS difference FROM transactions s JOIN transactions t ON s.txn_id = t.txn_id WHERE s.system = 'source' AND t.system = 'target' AND s.amount != t.amount",
+    "pyspark_equivalent": "src=transactions.filter(F.col('system')=='source').select('txn_id',F.col('amount').alias('source_amount'))\ntgt=transactions.filter(F.col('system')=='target').select('txn_id',F.col('amount').alias('target_amount'))\ndf=src.join(tgt,'txn_id').filter(F.col('source_amount')!=F.col('target_amount')).withColumn('difference',F.col('target_amount')-F.col('source_amount'))",
+    "expected_output_columns": [
+      "txn_id",
+      "source_amount",
+      "target_amount",
+      "difference"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 14,
+    "title": "SCD Type 2 Current Active Rows",
+    "difficulty": "Easy",
+    "tags": [
+      "SCD",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Get the current active record for each customer from the SCD table. Return customer_id, name, region, segment.",
+    "tables_used": [
+      "scd_customers"
+    ],
+    "hint": "Filter WHERE is_current = true.",
+    "explanation": "SCD Type 2 basic — select current version.",
+    "solution_sql": "SELECT customer_id, name, region, segment FROM scd_customers WHERE is_current = true ORDER BY customer_id",
+    "pyspark_equivalent": "df=scd_customers.filter(F.col('is_current')==True).select('customer_id','name','region','segment')",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "region",
+      "segment"
+    ],
+    "expected_row_count": 12,
+    "requires_order": true
+  },
+  {
+    "id": 15,
+    "title": "Rank Sellers by Revenue",
+    "difficulty": "Easy",
+    "tags": [
+      "ranking",
+      "window functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Rank all sellers by their total delivered revenue using DENSE_RANK. Return seller_id, name, total_revenue, revenue_rank.",
+    "tables_used": [
+      "orders",
+      "sellers"
+    ],
+    "hint": "Aggregate then DENSE_RANK() OVER(ORDER BY total_revenue DESC).",
+    "explanation": "Ranking pattern with DENSE_RANK.",
+    "solution_sql": "SELECT s.seller_id, s.name, SUM(o.amount) AS total_revenue, DENSE_RANK() OVER(ORDER BY SUM(o.amount) DESC) AS revenue_rank FROM sellers s JOIN orders o ON s.seller_id=o.seller_id WHERE o.status='delivered' GROUP BY s.seller_id, s.name ORDER BY revenue_rank",
+    "pyspark_equivalent": "df=orders.filter(F.col('status')=='delivered').join(sellers,'seller_id').groupBy('seller_id','name').agg(F.sum('amount').alias('total_revenue')).withColumn('revenue_rank',F.dense_rank().over(Window.orderBy(F.desc('total_revenue'))))",
+    "expected_output_columns": [
+      "seller_id",
+      "name",
+      "total_revenue",
+      "revenue_rank"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 16,
+    "title": "7-Day Rolling Average Sales",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate 7-day rolling average of daily delivered revenue. Return order_date, daily_revenue, rolling_avg_7d.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Use AVG() OVER(ORDER BY order_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW).",
+    "explanation": "Rolling window — common in time-series analytics.",
+    "solution_sql": "WITH daily AS (SELECT order_date, SUM(amount) AS daily_revenue FROM orders WHERE status='delivered' GROUP BY order_date) SELECT order_date, daily_revenue, ROUND(AVG(daily_revenue) OVER(ORDER BY order_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) AS rolling_avg_7d FROM daily ORDER BY order_date",
+    "pyspark_equivalent": "w=Window.orderBy('order_date').rowsBetween(-6,Window.currentRow)\ndaily=orders.filter(F.col('status')=='delivered').groupBy('order_date').agg(F.sum('amount').alias('daily_revenue'))\ndf=daily.withColumn('rolling_avg_7d',F.round(F.avg('daily_revenue').over(w),2))",
+    "expected_output_columns": [
+      "order_date",
+      "daily_revenue",
+      "rolling_avg_7d"
+    ],
+    "expected_row_count": 37,
+    "requires_order": true
+  },
+  {
+    "id": 17,
+    "title": "Null Primary Key Detection",
+    "difficulty": "Easy",
+    "tags": [
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find rows in orders where order_id, customer_id, or product_id is NULL. Return the full row.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "WHERE order_id IS NULL OR customer_id IS NULL OR product_id IS NULL.",
+    "explanation": "Data quality check — NULL PKs break downstream.",
+    "solution_sql": "SELECT * FROM orders WHERE order_id IS NULL OR customer_id IS NULL OR product_id IS NULL",
+    "pyspark_equivalent": "df=orders.filter(F.col('order_id').isNull() | F.col('customer_id').isNull() | F.col('product_id').isNull())",
+    "expected_output_columns": [
+      "order_id",
+      "customer_id",
+      "seller_id",
+      "product_id",
+      "quantity",
+      "amount",
+      "status",
+      "order_date",
+      "delivery_date"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 18,
+    "title": "Invalid Status Detection",
+    "difficulty": "Easy",
+    "tags": [
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find orders with a status NOT in ('delivered','shipped','cancelled','returned'). Return order_id and status.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "WHERE status NOT IN (...).",
+    "explanation": "Referential integrity / domain validation.",
+    "solution_sql": "SELECT order_id, status FROM orders WHERE status NOT IN ('delivered','shipped','cancelled','returned')",
+    "pyspark_equivalent": "valid=['delivered','shipped','cancelled','returned']\ndf=orders.filter(~F.col('status').isin(valid)).select('order_id','status')",
+    "expected_output_columns": [
+      "order_id",
+      "status"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 19,
+    "title": "Unmatched Foreign Keys",
+    "difficulty": "Medium",
+    "tags": [
+      "data quality",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find orders referencing a customer_id that doesn't exist in the customers table. Return order_id and customer_id.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "LEFT JOIN orders to customers, WHERE customers.customer_id IS NULL.",
+    "explanation": "Referential integrity check across tables.",
+    "solution_sql": "SELECT o.order_id, o.customer_id FROM orders o LEFT JOIN customers c ON o.customer_id=c.customer_id WHERE c.customer_id IS NULL",
+    "pyspark_equivalent": "df=orders.join(customers,'customer_id','left_anti').select('order_id','customer_id')",
+    "expected_output_columns": [
+      "order_id",
+      "customer_id"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 20,
+    "title": "Reconcile Transaction Totals",
+    "difficulty": "Medium",
+    "tags": [
+      "data quality",
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "For each account_id, compare total amounts between source and target systems. Return account_id, source_total, target_total, difference. Only show mismatched accounts.",
+    "tables_used": [
+      "transactions"
+    ],
+    "hint": "Aggregate by account_id and system, then pivot/join.",
+    "explanation": "Reconciliation check between two systems.",
+    "solution_sql": "WITH src AS (SELECT account_id, SUM(amount) AS source_total FROM transactions WHERE system='source' GROUP BY account_id), tgt AS (SELECT account_id, SUM(amount) AS target_total FROM transactions WHERE system='target' GROUP BY account_id) SELECT COALESCE(s.account_id, t.account_id) AS account_id, COALESCE(s.source_total,0) AS source_total, COALESCE(t.target_total,0) AS target_total, COALESCE(t.target_total,0) - COALESCE(s.source_total,0) AS difference FROM src s FULL OUTER JOIN tgt t ON s.account_id=t.account_id WHERE COALESCE(s.source_total,0) != COALESCE(t.target_total,0) ORDER BY account_id",
+    "pyspark_equivalent": "src=transactions.filter(F.col('system')=='source').groupBy('account_id').agg(F.sum('amount').alias('source_total'))\ntgt=transactions.filter(F.col('system')=='target').groupBy('account_id').agg(F.sum('amount').alias('target_total'))\ndf=src.join(tgt,'account_id','full').fillna(0).withColumn('difference',F.col('target_total')-F.col('source_total')).filter(F.col('difference')!=0)",
+    "expected_output_columns": [
+      "account_id",
+      "source_total",
+      "target_total",
+      "difference"
+    ],
+    "expected_row_count": 3,
+    "requires_order": false
+  },
+  {
+    "id": 21,
+    "title": "Employee Salary Above Department Average",
+    "difficulty": "Medium",
+    "tags": [
+      "window functions",
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find employees earning above their department average. Return employee name, department_id, salary, dept_avg_salary.",
+    "tables_used": [
+      "employees"
+    ],
+    "hint": "Use AVG() OVER(PARTITION BY department_id) and filter.",
+    "explanation": "Window function for comparative analysis.",
+    "solution_sql": "SELECT name, department_id, salary, ROUND(AVG(salary) OVER(PARTITION BY department_id), 2) AS dept_avg_salary FROM employees WHERE salary > (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = employees.department_id) ORDER BY department_id, salary DESC",
+    "pyspark_equivalent": "w=Window.partitionBy('department_id')\ndf=employees.withColumn('dept_avg',F.avg('salary').over(w)).filter(F.col('salary')>F.col('dept_avg'))",
+    "expected_output_columns": [
+      "name",
+      "department_id",
+      "salary",
+      "dept_avg_salary"
+    ],
+    "expected_row_count": 7,
+    "requires_order": false
+  },
+  {
+    "id": 22,
+    "title": "Month-over-Month Revenue Growth",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate month-over-month revenue growth for delivered orders. Return month, monthly_revenue, prev_month_revenue, growth_pct.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Extract month, aggregate, then use LAG().",
+    "explanation": "MoM growth — core business metric with LAG window function.",
+    "solution_sql": "WITH monthly AS (SELECT DATE_TRUNC('month', order_date) AS month, SUM(amount) AS monthly_revenue FROM orders WHERE status='delivered' GROUP BY DATE_TRUNC('month', order_date)) SELECT month, monthly_revenue, LAG(monthly_revenue) OVER(ORDER BY month) AS prev_month_revenue, ROUND(100.0*(monthly_revenue - LAG(monthly_revenue) OVER(ORDER BY month)) / LAG(monthly_revenue) OVER(ORDER BY month), 2) AS growth_pct FROM monthly ORDER BY month",
+    "pyspark_equivalent": "monthly=orders.filter(F.col('status')=='delivered').withColumn('month',F.date_trunc('month','order_date')).groupBy('month').agg(F.sum('amount').alias('monthly_revenue'))\nw=Window.orderBy('month')\ndf=monthly.withColumn('prev_month_revenue',F.lag('monthly_revenue').over(w)).withColumn('growth_pct',F.round(100*(F.col('monthly_revenue')-F.col('prev_month_revenue'))/F.col('prev_month_revenue'),2))",
+    "expected_output_columns": [
+      "month",
+      "monthly_revenue",
+      "prev_month_revenue",
+      "growth_pct"
+    ],
+    "expected_row_count": 3,
+    "requires_order": true
+  },
+  {
+    "id": 23,
+    "title": "Customer Lifetime Value",
+    "difficulty": "Hard",
+    "tags": [
+      "aggregations",
+      "joins",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Compute CLV per customer: total spend, order count, avg order value, first and last order dates (delivered only). Return customer_id, name, total_spend, order_count, avg_order_value, first_order, last_order.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "Aggregate on customer with multiple aggregate functions.",
+    "explanation": "CLV calculation — multi-metric aggregation.",
+    "solution_sql": "SELECT c.customer_id, c.name, SUM(o.amount) AS total_spend, COUNT(DISTINCT o.order_id) AS order_count, ROUND(SUM(o.amount)/COUNT(DISTINCT o.order_id),2) AS avg_order_value, MIN(o.order_date) AS first_order, MAX(o.order_date) AS last_order FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.status='delivered' GROUP BY c.customer_id, c.name ORDER BY total_spend DESC",
+    "pyspark_equivalent": "df=orders.filter(F.col('status')=='delivered').join(customers,'customer_id').groupBy('customer_id','name').agg(F.sum('amount').alias('total_spend'),F.countDistinct('order_id').alias('order_count'),F.round(F.sum('amount')/F.countDistinct('order_id'),2).alias('avg_order_value'),F.min('order_date').alias('first_order'),F.max('order_date').alias('last_order')).orderBy(F.desc('total_spend'))",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "total_spend",
+      "order_count",
+      "avg_order_value",
+      "first_order",
+      "last_order"
+    ],
+    "expected_row_count": 20,
+    "requires_order": true
+  },
+  {
+    "id": 24,
+    "title": "Pipeline Failure Rate",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "PySpark SQL",
+      "ETL"
+    ],
+    "problem_statement": "Calculate the failure rate per pipeline. Return pipeline_name, total_runs, failed_runs, failure_rate_pct.",
+    "tables_used": [
+      "pipeline_run_log"
+    ],
+    "hint": "GROUP BY pipeline and use conditional counts.",
+    "explanation": "Pipeline monitoring KPI.",
+    "solution_sql": "SELECT pipeline_name, COUNT(*) AS total_runs, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed_runs, ROUND(100.0*SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END)/COUNT(*), 2) AS failure_rate_pct FROM pipeline_run_log GROUP BY pipeline_name ORDER BY failure_rate_pct DESC",
+    "pyspark_equivalent": "df=pipeline_run_log.groupBy('pipeline_name').agg(F.count('*').alias('total_runs'),F.sum(F.when(F.col('status')=='failed',1).otherwise(0)).alias('failed_runs')).withColumn('failure_rate_pct',F.round(100*F.col('failed_runs')/F.col('total_runs'),2)).orderBy(F.desc('failure_rate_pct'))",
+    "expected_output_columns": [
+      "pipeline_name",
+      "total_runs",
+      "failed_runs",
+      "failure_rate_pct"
+    ],
+    "expected_row_count": 5,
+    "requires_order": true
+  },
+  {
+    "id": 25,
+    "title": "Recon Mismatches",
+    "difficulty": "Easy",
+    "tags": [
+      "data quality",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find all source-target reconciliation mismatches. Return recon_date, table_name, source_count, target_count, count_diff.",
+    "tables_used": [
+      "source_target_recon"
+    ],
+    "hint": "Filter status='mismatched' and compute diff.",
+    "explanation": "Recon monitoring.",
+    "solution_sql": "SELECT recon_date, table_name, source_count, target_count, source_count - target_count AS count_diff FROM source_target_recon WHERE status = 'mismatched' ORDER BY recon_date",
+    "pyspark_equivalent": "df=source_target_recon.filter(F.col('status')=='mismatched').withColumn('count_diff',F.col('source_count')-F.col('target_count')).select('recon_date','table_name','source_count','target_count','count_diff')",
+    "expected_output_columns": [
+      "recon_date",
+      "table_name",
+      "source_count",
+      "target_count",
+      "count_diff"
+    ],
+    "expected_row_count": 2,
+    "requires_order": true
+  },
+  {
+    "id": 26,
+    "title": "SCD2 History for a Customer",
+    "difficulty": "Medium",
+    "tags": [
+      "SCD",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Show the full change history for customer_id=6 from the SCD table, ordered by effective_start. Return all columns.",
+    "tables_used": [
+      "scd_customers"
+    ],
+    "hint": "Simple filter + ORDER BY.",
+    "explanation": "SCD Type 2 history traversal.",
+    "solution_sql": "SELECT * FROM scd_customers WHERE customer_id=6 ORDER BY effective_start",
+    "pyspark_equivalent": "df=scd_customers.filter(F.col('customer_id')==6).orderBy('effective_start')",
+    "expected_output_columns": [
+      "scd_id",
+      "customer_id",
+      "name",
+      "region",
+      "segment",
+      "effective_start",
+      "effective_end",
+      "is_current"
+    ],
+    "expected_row_count": 3,
+    "requires_order": true
+  },
+  {
+    "id": 27,
+    "title": "SCD2 Point-in-Time Lookup",
+    "difficulty": "Hard",
+    "tags": [
+      "SCD",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find each customer's region as of 2022-06-01 from the SCD table. Return customer_id, name, region.",
+    "tables_used": [
+      "scd_customers"
+    ],
+    "hint": "Filter effective_start <= date AND effective_end > date.",
+    "explanation": "Point-in-time query on SCD — important for historical analytics.",
+    "solution_sql": "SELECT customer_id, name, region FROM scd_customers WHERE effective_start <= '2022-06-01' AND effective_end > '2022-06-01' ORDER BY customer_id",
+    "pyspark_equivalent": "df=scd_customers.filter((F.col('effective_start')<='2022-06-01') & (F.col('effective_end')>'2022-06-01')).select('customer_id','name','region')",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "region"
+    ],
+    "expected_row_count": 10,
+    "requires_order": true
+  },
+  {
+    "id": 28,
+    "title": "Inventory Depletion Rate",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate inventory depletion rate per product across snapshots. Return product_id, snapshot_date, qty_on_hand, prev_qty, depletion.",
+    "tables_used": [
+      "inventory_snapshots"
+    ],
+    "hint": "Use LAG() to get previous snapshot and compute difference.",
+    "explanation": "Inventory analytics with window functions.",
+    "solution_sql": "SELECT product_id, snapshot_date, qty_on_hand, LAG(qty_on_hand) OVER(PARTITION BY product_id ORDER BY snapshot_date) AS prev_qty, LAG(qty_on_hand) OVER(PARTITION BY product_id ORDER BY snapshot_date) - qty_on_hand AS depletion FROM inventory_snapshots ORDER BY product_id, snapshot_date",
+    "pyspark_equivalent": "w=Window.partitionBy('product_id').orderBy('snapshot_date')\ndf=inventory_snapshots.withColumn('prev_qty',F.lag('qty_on_hand').over(w)).withColumn('depletion',F.col('prev_qty')-F.col('qty_on_hand'))",
+    "expected_output_columns": [
+      "product_id",
+      "snapshot_date",
+      "qty_on_hand",
+      "prev_qty",
+      "depletion"
+    ],
+    "expected_row_count": 30,
+    "requires_order": true
+  },
+  {
+    "id": 29,
+    "title": "Missing Transactions in Target",
+    "difficulty": "Medium",
+    "tags": [
+      "CDC",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find txn_ids present in source but missing in target. Return txn_id, account_id, amount.",
+    "tables_used": [
+      "transactions"
+    ],
+    "hint": "Anti-join pattern between source and target subsets.",
+    "explanation": "CDC gap detection between systems.",
+    "solution_sql": "SELECT s.txn_id, s.account_id, s.amount FROM transactions s LEFT JOIN transactions t ON s.txn_id=t.txn_id AND t.system='target' WHERE s.system='source' AND t.txn_id IS NULL",
+    "pyspark_equivalent": "src=transactions.filter(F.col('system')=='source')\ntgt=transactions.filter(F.col('system')=='target').select('txn_id')\ndf=src.join(tgt,'txn_id','left_anti')",
+    "expected_output_columns": [
+      "txn_id",
+      "account_id",
+      "amount"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 30,
+    "title": "Extra Records in Target",
+    "difficulty": "Medium",
+    "tags": [
+      "CDC",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find txn_ids present in target but not in source. Return txn_id, account_id, amount.",
+    "tables_used": [
+      "transactions"
+    ],
+    "hint": "Same as Q29 but reversed.",
+    "explanation": "Detecting ghost records loaded into target.",
+    "solution_sql": "SELECT t.txn_id, t.account_id, t.amount FROM transactions t LEFT JOIN transactions s ON t.txn_id=s.txn_id AND s.system='source' WHERE t.system='target' AND s.txn_id IS NULL",
+    "pyspark_equivalent": "src=transactions.filter(F.col('system')=='source').select('txn_id')\ntgt=transactions.filter(F.col('system')=='target')\ndf=tgt.join(src,'txn_id','left_anti')",
+    "expected_output_columns": [
+      "txn_id",
+      "account_id",
+      "amount"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 31,
+    "title": "Customer Segment Revenue Share",
+    "difficulty": "Medium",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate each customer segment's share of total delivered revenue. Return segment, segment_revenue, total_revenue, share_pct.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "Two-level aggregation or window SUM for total.",
+    "explanation": "Revenue mix analysis.",
+    "solution_sql": "WITH seg AS (SELECT c.segment, SUM(o.amount) AS segment_revenue FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.status='delivered' GROUP BY c.segment) SELECT segment, segment_revenue, SUM(segment_revenue) OVER() AS total_revenue, ROUND(100.0*segment_revenue/SUM(segment_revenue) OVER(), 2) AS share_pct FROM seg ORDER BY share_pct DESC",
+    "pyspark_equivalent": "seg=orders.filter(F.col('status')=='delivered').join(customers,'customer_id').groupBy('segment').agg(F.sum('amount').alias('segment_revenue'))\ntot=seg.agg(F.sum('segment_revenue')).collect()[0][0]\ndf=seg.withColumn('total_revenue',F.lit(tot)).withColumn('share_pct',F.round(100*F.col('segment_revenue')/F.col('total_revenue'),2))",
+    "expected_output_columns": [
+      "segment",
+      "segment_revenue",
+      "total_revenue",
+      "share_pct"
+    ],
+    "expected_row_count": 3,
+    "requires_order": true
+  },
+  {
+    "id": 32,
+    "title": "Order Status Distribution",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Count orders by status. Return status, order_count, pct of total.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "GROUP BY status with window for total.",
+    "explanation": "Status distribution analysis.",
+    "solution_sql": "SELECT status, COUNT(*) AS order_count, ROUND(100.0*COUNT(*)/SUM(COUNT(*)) OVER(), 2) AS pct FROM orders GROUP BY status ORDER BY order_count DESC",
+    "pyspark_equivalent": "total=orders.count()\ndf=orders.groupBy('status').agg(F.count('*').alias('order_count')).withColumn('pct',F.round(100*F.col('order_count')/F.lit(total),2))",
+    "expected_output_columns": [
+      "status",
+      "order_count",
+      "pct"
+    ],
+    "expected_row_count": 4,
+    "requires_order": true
+  },
+  {
+    "id": 33,
+    "title": "Employee Hierarchy Depth",
+    "difficulty": "Hard",
+    "tags": [
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find each employee and their manager's name. Return employee_id, employee_name, manager_name (NULL if no manager).",
+    "tables_used": [
+      "employees"
+    ],
+    "hint": "Self-join on manager_id = employee_id.",
+    "explanation": "Self-join for hierarchical data.",
+    "solution_sql": "SELECT e.employee_id, e.name AS employee_name, m.name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id=m.employee_id ORDER BY e.employee_id",
+    "pyspark_equivalent": "df=employees.alias('e').join(employees.alias('m'),F.col('e.manager_id')==F.col('m.employee_id'),'left').select(F.col('e.employee_id'),F.col('e.name').alias('employee_name'),F.col('m.name').alias('manager_name'))",
+    "expected_output_columns": [
+      "employee_id",
+      "employee_name",
+      "manager_name"
+    ],
+    "expected_row_count": 15,
+    "requires_order": true
+  },
+  {
+    "id": 34,
+    "title": "Category Revenue Ranking",
+    "difficulty": "Medium",
+    "tags": [
+      "aggregations",
+      "ranking",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Rank product categories by total delivered revenue. Return category, category_revenue, category_rank.",
+    "tables_used": [
+      "orders",
+      "products"
+    ],
+    "hint": "JOIN, aggregate, RANK().",
+    "explanation": "Category-level business analysis.",
+    "solution_sql": "SELECT p.category, SUM(o.amount) AS category_revenue, RANK() OVER(ORDER BY SUM(o.amount) DESC) AS category_rank FROM orders o JOIN products p ON o.product_id=p.product_id WHERE o.status='delivered' GROUP BY p.category ORDER BY category_rank",
+    "pyspark_equivalent": "df=orders.filter(F.col('status')=='delivered').join(products,'product_id').groupBy('category').agg(F.sum('amount').alias('category_revenue')).withColumn('category_rank',F.rank().over(Window.orderBy(F.desc('category_revenue'))))",
+    "expected_output_columns": [
+      "category",
+      "category_revenue",
+      "category_rank"
+    ],
+    "expected_row_count": 4,
+    "requires_order": true
+  },
+  {
+    "id": 35,
+    "title": "Pipeline Average Duration",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "date functions",
+      "ETL",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate the average run duration in minutes per pipeline (successful runs only). Return pipeline_name, avg_duration_minutes.",
+    "tables_used": [
+      "pipeline_run_log"
+    ],
+    "hint": "Use EXTRACT(EPOCH FROM end_ts - start_ts)/60 or equivalent.",
+    "explanation": "Pipeline performance SLA tracking.",
+    "solution_sql": "SELECT pipeline_name, ROUND(AVG(EXTRACT(EPOCH FROM (end_ts - start_ts))/60), 2) AS avg_duration_minutes FROM pipeline_run_log WHERE status='success' GROUP BY pipeline_name ORDER BY avg_duration_minutes DESC",
+    "pyspark_equivalent": "df=pipeline_run_log.filter(F.col('status')=='success').withColumn('duration_min',(F.unix_timestamp('end_ts')-F.unix_timestamp('start_ts'))/60).groupBy('pipeline_name').agg(F.round(F.avg('duration_min'),2).alias('avg_duration_minutes'))",
+    "expected_output_columns": [
+      "pipeline_name",
+      "avg_duration_minutes"
+    ],
+    "expected_row_count": 5,
+    "requires_order": true
+  },
+  {
+    "id": 36,
+    "title": "Customers Active in All 3 Months",
+    "difficulty": "Hard",
+    "tags": [
+      "aggregations",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find customers who placed at least one order in each of Jan, Feb, and Mar 2024. Return customer_id, name.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "COUNT(DISTINCT month) = 3 after extracting month.",
+    "explanation": "Retention / cohort analysis.",
+    "solution_sql": "SELECT c.customer_id, c.name FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.order_date >= '2024-01-01' AND o.order_date < '2024-04-01' GROUP BY c.customer_id, c.name HAVING COUNT(DISTINCT DATE_TRUNC('month', o.order_date)) = 3 ORDER BY c.customer_id",
+    "pyspark_equivalent": "df=orders.filter((F.col('order_date')>='2024-01-01')&(F.col('order_date')<'2024-04-01')).join(customers,'customer_id').withColumn('month',F.date_trunc('month','order_date')).groupBy('customer_id','name').agg(F.countDistinct('month').alias('months')).filter(F.col('months')==3)",
+    "expected_output_columns": [
+      "customer_id",
+      "name"
+    ],
+    "expected_row_count": 8,
+    "requires_order": false
+  },
+  {
+    "id": 37,
+    "title": "Order Amount Percentiles",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate the 25th, 50th (median), and 75th percentile of order amounts. Return p25, p50, p75.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Use PERCENTILE_CONT or APPROX_QUANTILE.",
+    "explanation": "Percentile calculations for distribution analysis.",
+    "solution_sql": "SELECT ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY amount), 2) AS p25, ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY amount), 2) AS p50, ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY amount), 2) AS p75 FROM orders",
+    "pyspark_equivalent": "df=orders.select(F.round(F.percentile_approx('amount',0.25),2).alias('p25'),F.round(F.percentile_approx('amount',0.5),2).alias('p50'),F.round(F.percentile_approx('amount',0.75),2).alias('p75'))",
+    "expected_output_columns": [
+      "p25",
+      "p50",
+      "p75"
+    ],
+    "expected_row_count": 1,
+    "requires_order": false
+  },
+  {
+    "id": 38,
+    "title": "Department Budget Utilization",
+    "difficulty": "Medium",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Compare total employee salaries to department budget. Return dept name, total_salaries, budget, utilization_pct.",
+    "tables_used": [
+      "employees",
+      "departments"
+    ],
+    "hint": "JOIN and aggregate, divide salary sum by budget.",
+    "explanation": "Budget vs actual analysis.",
+    "solution_sql": "SELECT d.name AS dept_name, SUM(e.salary) AS total_salaries, d.budget, ROUND(100.0*SUM(e.salary)/d.budget, 2) AS utilization_pct FROM employees e JOIN departments d ON e.department_id=d.department_id WHERE e.status='active' GROUP BY d.name, d.budget ORDER BY utilization_pct DESC",
+    "pyspark_equivalent": "df=employees.filter(F.col('status')=='active').join(departments,employees['department_id']==departments['department_id']).groupBy(departments['name'].alias('dept_name'),'budget').agg(F.sum('salary').alias('total_salaries')).withColumn('utilization_pct',F.round(100*F.col('total_salaries')/F.col('budget'),2))",
+    "expected_output_columns": [
+      "dept_name",
+      "total_salaries",
+      "budget",
+      "utilization_pct"
+    ],
+    "expected_row_count": 5,
+    "requires_order": true
+  },
+  {
+    "id": 39,
+    "title": "User Session Analysis",
+    "difficulty": "Hard",
+    "tags": [
+      "aggregations",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Count events per session and compute session duration in minutes. Return session_id, user_id, event_count, duration_minutes.",
+    "tables_used": [
+      "events"
+    ],
+    "hint": "GROUP BY session_id, use MIN/MAX timestamp diff.",
+    "explanation": "Session-level analytics — clickstream analysis.",
+    "solution_sql": "SELECT session_id, user_id, COUNT(*) AS event_count, ROUND(EXTRACT(EPOCH FROM (MAX(event_timestamp) - MIN(event_timestamp)))/60, 2) AS duration_minutes FROM events GROUP BY session_id, user_id ORDER BY duration_minutes DESC",
+    "pyspark_equivalent": "df=events.groupBy('session_id','user_id').agg(F.count('*').alias('event_count'),F.round((F.unix_timestamp(F.max('event_timestamp'))-F.unix_timestamp(F.min('event_timestamp')))/60,2).alias('duration_minutes'))",
+    "expected_output_columns": [
+      "session_id",
+      "user_id",
+      "event_count",
+      "duration_minutes"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 40,
+    "title": "Products Below Reorder Point",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Using the latest inventory snapshot, find products where qty_on_hand < 100. Return product_id, warehouse_id, qty_on_hand.",
+    "tables_used": [
+      "inventory_snapshots"
+    ],
+    "hint": "Filter for max snapshot_date then filter qty.",
+    "explanation": "Inventory monitoring alert.",
+    "solution_sql": "SELECT product_id, warehouse_id, qty_on_hand FROM inventory_snapshots WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM inventory_snapshots) AND qty_on_hand < 100 ORDER BY qty_on_hand",
+    "pyspark_equivalent": "max_date=inventory_snapshots.agg(F.max('snapshot_date')).collect()[0][0]\ndf=inventory_snapshots.filter((F.col('snapshot_date')==max_date)&(F.col('qty_on_hand')<100))",
+    "expected_output_columns": [
+      "product_id",
+      "warehouse_id",
+      "qty_on_hand"
+    ],
+    "expected_row_count": 2,
+    "requires_order": true
+  },
+  {
+    "id": 41,
+    "title": "Order Delivery SLA",
+    "difficulty": "Medium",
+    "tags": [
+      "date functions",
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate avg delivery time in days per seller for delivered orders. Return seller_id, seller_name, avg_delivery_days.",
+    "tables_used": [
+      "orders",
+      "sellers"
+    ],
+    "hint": "DATE_DIFF between delivery and order date.",
+    "explanation": "Delivery SLA monitoring.",
+    "solution_sql": "SELECT s.seller_id, s.name AS seller_name, ROUND(AVG(o.delivery_date - o.order_date), 2) AS avg_delivery_days FROM orders o JOIN sellers s ON o.seller_id=s.seller_id WHERE o.status='delivered' AND o.delivery_date IS NOT NULL GROUP BY s.seller_id, s.name ORDER BY avg_delivery_days",
+    "pyspark_equivalent": "df=orders.filter((F.col('status')=='delivered')&(F.col('delivery_date').isNotNull())).join(sellers,'seller_id').withColumn('days',F.datediff('delivery_date','order_date')).groupBy('seller_id',sellers['name'].alias('seller_name')).agg(F.round(F.avg('days'),2).alias('avg_delivery_days'))",
+    "expected_output_columns": [
+      "seller_id",
+      "seller_name",
+      "avg_delivery_days"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 42,
+    "title": "Cancelled Order Rate by Seller",
+    "difficulty": "Medium",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate cancellation rate per seller. Return seller_id, name, total_orders, cancelled_orders, cancel_rate_pct.",
+    "tables_used": [
+      "orders",
+      "sellers"
+    ],
+    "hint": "Conditional aggregation with CASE WHEN.",
+    "explanation": "Seller quality metric.",
+    "solution_sql": "SELECT s.seller_id, s.name, COUNT(DISTINCT o.order_id) AS total_orders, COUNT(DISTINCT CASE WHEN o.status='cancelled' THEN o.order_id END) AS cancelled_orders, ROUND(100.0*COUNT(DISTINCT CASE WHEN o.status='cancelled' THEN o.order_id END)/COUNT(DISTINCT o.order_id), 2) AS cancel_rate_pct FROM sellers s JOIN orders o ON s.seller_id=o.seller_id GROUP BY s.seller_id, s.name ORDER BY cancel_rate_pct DESC",
+    "pyspark_equivalent": "df=orders.join(sellers,'seller_id').groupBy('seller_id','name').agg(F.countDistinct('order_id').alias('total_orders'),F.countDistinct(F.when(F.col('status')=='cancelled',F.col('order_id'))).alias('cancelled_orders')).withColumn('cancel_rate_pct',F.round(100*F.col('cancelled_orders')/F.col('total_orders'),2))",
+    "expected_output_columns": [
+      "seller_id",
+      "name",
+      "total_orders",
+      "cancelled_orders",
+      "cancel_rate_pct"
+    ],
+    "expected_row_count": 8,
+    "requires_order": true
+  },
+  {
+    "id": 43,
+    "title": "Deduplicated Orders Table",
+    "difficulty": "Easy",
+    "tags": [
+      "deduplication",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Remove exact duplicate rows from orders. Return distinct rows sorted by order_id.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "SELECT DISTINCT * or ROW_NUMBER for dedup.",
+    "explanation": "Basic deduplication.",
+    "solution_sql": "SELECT DISTINCT * FROM orders ORDER BY order_id",
+    "pyspark_equivalent": "df=orders.dropDuplicates().orderBy('order_id')",
+    "expected_output_columns": [
+      "order_id",
+      "customer_id",
+      "seller_id",
+      "product_id",
+      "quantity",
+      "amount",
+      "status",
+      "order_date",
+      "delivery_date"
+    ],
+    "expected_row_count": 60,
+    "requires_order": true
+  },
+  {
+    "id": 44,
+    "title": "Event Funnel Analysis",
+    "difficulty": "Hard",
+    "tags": [
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Count unique users at each funnel stage: page_view > add_to_cart > purchase. Return event_type and user_count.",
+    "tables_used": [
+      "events"
+    ],
+    "hint": "Filter for funnel events and COUNT DISTINCT user_id.",
+    "explanation": "Conversion funnel — product analytics.",
+    "solution_sql": "SELECT event_type, COUNT(DISTINCT user_id) AS user_count FROM events WHERE event_type IN ('page_view','add_to_cart','purchase') GROUP BY event_type ORDER BY CASE event_type WHEN 'page_view' THEN 1 WHEN 'add_to_cart' THEN 2 WHEN 'purchase' THEN 3 END",
+    "pyspark_equivalent": "df=events.filter(F.col('event_type').isin('page_view','add_to_cart','purchase')).groupBy('event_type').agg(F.countDistinct('user_id').alias('user_count'))",
+    "expected_output_columns": [
+      "event_type",
+      "user_count"
+    ],
+    "expected_row_count": 3,
+    "requires_order": true
+  },
+  {
+    "id": 45,
+    "title": "Inventory vs Sold Quantity",
+    "difficulty": "Hard",
+    "tags": [
+      "joins",
+      "aggregations",
+      "PySpark SQL",
+      "warehousing"
+    ],
+    "problem_statement": "Compare latest inventory on hand vs total quantity sold (delivered). Return product_id, product_name, qty_on_hand, qty_sold, remaining.",
+    "tables_used": [
+      "inventory_snapshots",
+      "orders",
+      "products"
+    ],
+    "hint": "Join latest snapshot with aggregated sales.",
+    "explanation": "Inventory reconciliation.",
+    "solution_sql": "WITH latest_inv AS (SELECT product_id, SUM(qty_on_hand) AS qty_on_hand FROM inventory_snapshots WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM inventory_snapshots) GROUP BY product_id), sold AS (SELECT product_id, SUM(quantity) AS qty_sold FROM orders WHERE status='delivered' GROUP BY product_id) SELECT p.product_id, p.name AS product_name, COALESCE(i.qty_on_hand,0) AS qty_on_hand, COALESCE(s.qty_sold,0) AS qty_sold, COALESCE(i.qty_on_hand,0)-COALESCE(s.qty_sold,0) AS remaining FROM products p LEFT JOIN latest_inv i ON p.product_id=i.product_id LEFT JOIN sold s ON p.product_id=s.product_id ORDER BY p.product_id",
+    "pyspark_equivalent": "df computed with joins between latest inventory, sales aggregation, and products",
+    "expected_output_columns": [
+      "product_id",
+      "product_name",
+      "qty_on_hand",
+      "qty_sold",
+      "remaining"
+    ],
+    "expected_row_count": 15,
+    "requires_order": false
+  },
+  {
+    "id": 46,
+    "title": "SCD Type 1 Simulation",
+    "difficulty": "Medium",
+    "tags": [
+      "SCD",
+      "PySpark SQL"
+    ],
+    "problem_statement": "From scd_customers, build a Type 1 view: only the current record per customer, dropping history columns. Return customer_id, name, region, segment.",
+    "tables_used": [
+      "scd_customers"
+    ],
+    "hint": "Filter is_current=true, select relevant columns.",
+    "explanation": "SCD1 only keeps latest values, no history.",
+    "solution_sql": "SELECT customer_id, name, region, segment FROM scd_customers WHERE is_current = true ORDER BY customer_id",
+    "pyspark_equivalent": "df=scd_customers.filter(F.col('is_current')==True).select('customer_id','name','region','segment')",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "region",
+      "segment"
+    ],
+    "expected_row_count": 12,
+    "requires_order": true
+  },
+  {
+    "id": 47,
+    "title": "Consecutive Pipeline Failures",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "ETL",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find pipelines with 2 or more consecutive failures. Return pipeline_name, run_id, status, prev_status.",
+    "tables_used": [
+      "pipeline_run_log"
+    ],
+    "hint": "LAG() to get previous status, filter both='failed'.",
+    "explanation": "Alert on repeated failures — ops monitoring.",
+    "solution_sql": "WITH lagged AS (SELECT pipeline_name, run_id, status, LAG(status) OVER(PARTITION BY pipeline_name ORDER BY start_ts) AS prev_status FROM pipeline_run_log) SELECT pipeline_name, run_id, status, prev_status FROM lagged WHERE status='failed' AND prev_status='failed'",
+    "pyspark_equivalent": "w=Window.partitionBy('pipeline_name').orderBy('start_ts')\ndf=pipeline_run_log.withColumn('prev_status',F.lag('status').over(w)).filter((F.col('status')=='failed')&(F.col('prev_status')=='failed'))",
+    "expected_output_columns": [
+      "pipeline_name",
+      "run_id",
+      "status",
+      "prev_status"
+    ],
+    "expected_row_count": 0,
+    "requires_order": false
+  },
+  {
+    "id": 48,
+    "title": "Revenue by Day of Week",
+    "difficulty": "Easy",
+    "tags": [
+      "aggregations",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate total delivered revenue by day of week. Return day_of_week (name) and revenue.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Use DAYNAME or EXTRACT(DOW).",
+    "explanation": "Day-of-week analysis for patterns.",
+    "solution_sql": "SELECT DAYNAME(order_date) AS day_of_week, SUM(amount) AS revenue FROM orders WHERE status='delivered' GROUP BY DAYNAME(order_date) ORDER BY revenue DESC",
+    "pyspark_equivalent": "df=orders.filter(F.col('status')=='delivered').withColumn('day_of_week',F.date_format('order_date','EEEE')).groupBy('day_of_week').agg(F.sum('amount').alias('revenue'))",
+    "expected_output_columns": [
+      "day_of_week",
+      "revenue"
+    ],
+    "expected_row_count": 7,
+    "requires_order": true
+  },
+  {
+    "id": 49,
+    "title": "Customer Order Gap Analysis",
+    "difficulty": "Hard",
+    "tags": [
+      "window functions",
+      "date functions",
+      "PySpark SQL"
+    ],
+    "problem_statement": "For each customer, calculate the days between consecutive orders. Return customer_id, order_date, prev_order_date, gap_days.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "LAG(order_date) OVER(PARTITION BY customer_id ORDER BY order_date).",
+    "explanation": "Inter-event timing — useful for churn prediction.",
+    "solution_sql": "SELECT customer_id, order_date, LAG(order_date) OVER(PARTITION BY customer_id ORDER BY order_date) AS prev_order_date, order_date - LAG(order_date) OVER(PARTITION BY customer_id ORDER BY order_date) AS gap_days FROM orders ORDER BY customer_id, order_date",
+    "pyspark_equivalent": "w=Window.partitionBy('customer_id').orderBy('order_date')\ndf=orders.withColumn('prev_order_date',F.lag('order_date').over(w)).withColumn('gap_days',F.datediff('order_date','prev_order_date'))",
+    "expected_output_columns": [
+      "customer_id",
+      "order_date",
+      "prev_order_date",
+      "gap_days"
+    ],
+    "expected_row_count": 61,
+    "requires_order": true
+  },
+  {
+    "id": 50,
+    "title": "DENSE_RANK Products by Category Revenue",
+    "difficulty": "Medium",
+    "tags": [
+      "window functions",
+      "ranking",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Rank products within each category by delivered revenue using DENSE_RANK. Return category, product_name, product_revenue, product_rank.",
+    "tables_used": [
+      "orders",
+      "products"
+    ],
+    "hint": "Aggregate then DENSE_RANK() OVER(PARTITION BY category).",
+    "explanation": "Intra-category ranking.",
+    "solution_sql": "SELECT p.category, p.name AS product_name, SUM(o.amount) AS product_revenue, DENSE_RANK() OVER(PARTITION BY p.category ORDER BY SUM(o.amount) DESC) AS product_rank FROM orders o JOIN products p ON o.product_id=p.product_id WHERE o.status='delivered' GROUP BY p.category, p.name ORDER BY p.category, product_rank",
+    "pyspark_equivalent": "w=Window.partitionBy('category').orderBy(F.desc('product_revenue'))\ndf=orders.filter(F.col('status')=='delivered').join(products,'product_id').groupBy('category',products['name'].alias('product_name')).agg(F.sum('amount').alias('product_revenue')).withColumn('product_rank',F.dense_rank().over(w))",
+    "expected_output_columns": [
+      "category",
+      "product_name",
+      "product_revenue",
+      "product_rank"
+    ],
+    "expected_row_count": 14,
+    "requires_order": true
+  },
+  {
+    "id": 51,
+    "title": "Multi-Table Join: Full Order Details",
+    "difficulty": "Easy",
+    "tags": [
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Create a full order detail view joining orders, customers, sellers, and products. Return order_id, customer_name, seller_name, product_name, amount, status. Show first 20 rows.",
+    "tables_used": [
+      "orders",
+      "customers",
+      "sellers",
+      "products"
+    ],
+    "hint": "Four-way JOIN.",
+    "explanation": "Multi-table joins — common in dimensional modeling.",
+    "solution_sql": "SELECT DISTINCT o.order_id, c.name AS customer_name, s.name AS seller_name, p.name AS product_name, o.amount, o.status FROM orders o JOIN customers c ON o.customer_id=c.customer_id JOIN sellers s ON o.seller_id=s.seller_id JOIN products p ON o.product_id=p.product_id ORDER BY o.order_id LIMIT 20",
+    "pyspark_equivalent": "df=orders.join(customers,'customer_id').join(sellers,'seller_id').join(products,'product_id').select('order_id',customers['name'].alias('customer_name'),sellers['name'].alias('seller_name'),products['name'].alias('product_name'),'amount','status')",
+    "expected_output_columns": [
+      "order_id",
+      "customer_name",
+      "seller_name",
+      "product_name",
+      "amount",
+      "status"
+    ],
+    "expected_row_count": 20,
+    "requires_order": true
+  },
+  {
+    "id": 52,
+    "title": "Year-over-Year Comparison Scaffold",
+    "difficulty": "Medium",
+    "tags": [
+      "date functions",
+      "aggregations",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Calculate monthly revenue for Q1 2024 (Jan-Mar). Return month_num, month_name, monthly_revenue.",
+    "tables_used": [
+      "orders"
+    ],
+    "hint": "Extract month, filter Q1, aggregate.",
+    "explanation": "Monthly aggregation — building block for YoY.",
+    "solution_sql": "SELECT EXTRACT(MONTH FROM order_date) AS month_num, MONTHNAME(order_date) AS month_name, SUM(amount) AS monthly_revenue FROM orders WHERE status='delivered' AND order_date >= '2024-01-01' AND order_date < '2024-04-01' GROUP BY EXTRACT(MONTH FROM order_date), MONTHNAME(order_date) ORDER BY month_num",
+    "pyspark_equivalent": "df=orders.filter((F.col('status')=='delivered')&(F.col('order_date')>='2024-01-01')&(F.col('order_date')<'2024-04-01')).withColumn('month_num',F.month('order_date')).withColumn('month_name',F.date_format('order_date','MMMM')).groupBy('month_num','month_name').agg(F.sum('amount').alias('monthly_revenue'))",
+    "expected_output_columns": [
+      "month_num",
+      "month_name",
+      "monthly_revenue"
+    ],
+    "expected_row_count": 3,
+    "requires_order": true
+  },
+  {
+    "id": 53,
+    "title": "Cross-Seller Customer Overlap",
+    "difficulty": "Hard",
+    "tags": [
+      "aggregations",
+      "joins",
+      "PySpark SQL"
+    ],
+    "problem_statement": "Find customers who have purchased from more than one seller. Return customer_id, name, seller_count.",
+    "tables_used": [
+      "orders",
+      "customers"
+    ],
+    "hint": "COUNT(DISTINCT seller_id) > 1.",
+    "explanation": "Customer behavior analysis across sellers.",
+    "solution_sql": "SELECT c.customer_id, c.name, COUNT(DISTINCT o.seller_id) AS seller_count FROM orders o JOIN customers c ON o.customer_id=c.customer_id GROUP BY c.customer_id, c.name HAVING COUNT(DISTINCT o.seller_id)>1 ORDER BY seller_count DESC",
+    "pyspark_equivalent": "df=orders.join(customers,'customer_id').groupBy('customer_id','name').agg(F.countDistinct('seller_id').alias('seller_count')).filter(F.col('seller_count')>1)",
+    "expected_output_columns": [
+      "customer_id",
+      "name",
+      "seller_count"
+    ],
+    "expected_row_count": 20,
+    "requires_order": true
+  }
+]
